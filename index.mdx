@@ -1,97 +1,1928 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "RobotForge"
+description: "Complete guide to the RobotForge Python SDK for AI observability and telemetry"
 ---
 
-## Setting up
+## Overview
 
-Get your documentation site up and running in minutes.
+The RobotForge Python SDK provides comprehensive observability and telemetry for AI applications, enabling you to trace model calls, tool executions, and agent actions with minimal code changes. The SDK supports both synchronous and asynchronous operations, offering flexible integration patterns including context managers, decorators, and manual event creation.
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
+<Info>
+The SDK works with any LLM provider or AI tool. While examples may reference specific providers like OpenAI, the SDK is provider-agnostic and designed for maximum flexibility.
+</Info>
+
+### Key features
+
+- **Universal compatibility** - Works with any LLM provider (OpenAI, Anthropic, Cohere, custom models)
+- **Multiple integration patterns** - Context managers, decorators, and manual instrumentation
+- **Async and sync support** - Full support for both async/await and synchronous code
+- **Automatic token tracking** - Built-in token counting and cost calculation
+- **Distributed tracing** - Track complete execution chains across model calls and tools
+- **Production-ready** - Automatic batching, retries, and error handling
+
+## Installation
+
+Install the SDK using pip:
+
+```bash
+pip install robotforge-python-sdk
+```
+
+### Requirements
+
+- Python 3.8 or higher
+- `aiohttp` for async operations
+- `requests` for sync operations
+
+<Tip>
+Use a virtual environment to avoid dependency conflicts with other packages in your project.
+</Tip>
+
+## Quick start
+
+### Basic setup
+
+Initialize the SDK with your API key and application identifier:
+
+<CodeGroup>
+```python Quick setup
+import os
+from dotenv import load_dotenv
+import telemetry_sdk
+
+load_dotenv()
+
+# Initialize with quick_setup for sensible defaults
+client = telemetry_sdk.quick_setup(
+    api_key=os.getenv("ROBOTFORGE_API_KEY"),
+    user_id="user_123",
+    application_id="my_application",
+    set_as_default=True
+)
+```
+
+```python Manual configuration
+from telemetry_sdk.client import TelemetryClient
+
+# Initialize with custom configuration
+client = TelemetryClient(
+    api_key="your-api-key",
+    user_id="user_123",
+    application_id="my_application",
+    tenant_id="default",
+    session_id=None,  # Auto-generated if not provided
+    batch_size=10,
+    flush_interval=5.0,
+    max_retries=3,
+    debug=False
+)
+```
+
+```python Environment variables
+# Set environment variables
+export ROBOTFORGE_API_KEY="your-api-key"
+
+# Then initialize without explicit API key
+import telemetry_sdk
+
+client = telemetry_sdk.quick_setup(
+    user_id="user_123",
+    application_id="my_application"
+)
+```
+</CodeGroup>
+
+<Note>
+The `quick_setup` function creates a client with sensible defaults and optionally sets it as the default client for module-level operations.
+</Note>
+
+### Your first traced model call
+
+<Tabs>
+<Tab title="Async">
+```python
+async def generate_summary(text: str):
+    async with client.trace_model_call(
+        provider="openai",
+        model="gpt-4"
+    ) as span:
+        # Set input
+        span.set_input(text)
+        
+        # Make your LLM call
+        response = await openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": text}]
+        )
+        
+        # Capture output and usage
+        span.set_output(response.choices[0].message.content)
+        span.set_usage_details({
+            'prompt_tokens': response.usage.prompt_tokens,
+            'completion_tokens': response.usage.completion_tokens,
+            'total_tokens': response.usage.total_tokens
+        })
+        
+        return response.choices[0].message.content
+
+# Use the function
+result = await generate_summary("Explain quantum computing")
+await client.flush()  # Ensure events are sent
+```
+</Tab>
+
+<Tab title="Sync">
+```python
+def generate_summary(text: str):
+    with client.trace_model_call_sync(
+        provider="openai",
+        model="gpt-4"
+    ) as span:
+        # Set input
+        span.set_input(text)
+        
+        # Make your LLM call
+        response = openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": text}]
+        )
+        
+        # Capture output and usage
+        span.set_output(response.choices[0].message.content)
+        span.set_usage_details({
+            'prompt_tokens': response.usage.prompt_tokens,
+            'completion_tokens': response.usage.completion_tokens,
+            'total_tokens': response.usage.total_tokens
+        })
+        
+        return response.choices[0].message.content
+
+# Use the function
+result = generate_summary("Explain quantum computing")
+client.flush_sync()  # Ensure events are sent
+```
+</Tab>
+</Tabs>
+
+## Authentication
+
+### API key generation
+
+<Steps>
+<Step title="Access your organization settings">
+Navigate to your organization settings in the RobotForge dashboard.
+</Step>
+
+<Step title="Create an API key">
+Click "Create API Key" and provide a descriptive name for your key.
+
+<Tip>
+Use descriptive names like "Production API Key" or "Development Environment" to easily identify keys later.
+</Tip>
+</Step>
+
+<Step title="Copy and secure your key">
+Copy the generated API key immediately. You will not be able to view it again after closing the dialog.
+
+<Warning>
+Store your API key securely and never commit it to version control. Use environment variables or secure secret management solutions.
+</Warning>
+</Step>
+</Steps>
+
+### Security best practices
+
+<AccordionGroup>
+<Accordion title="Environment variables">
+Store API keys in environment variables rather than hardcoding them:
+
+```bash .env
+ROBOTFORGE_API_KEY=your_api_key_here
+```
+
+```python app.py
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+api_key = os.getenv("ROBOTFORGE_API_KEY")
+```
+</Accordion>
+
+<Accordion title="Secret management services">
+For production deployments, use dedicated secret management:
+
+- **AWS Secrets Manager** for AWS deployments
+- **Google Secret Manager** for GCP deployments
+- **Azure Key Vault** for Azure deployments
+- **HashiCorp Vault** for multi-cloud or on-premise
+</Accordion>
+
+<Accordion title="Key rotation">
+Regularly rotate API keys and maintain multiple keys for zero-downtime rotation:
+
+1. Generate a new API key
+2. Update your application configuration
+3. Verify the new key works correctly
+4. Revoke the old key
+</Accordion>
+</AccordionGroup>
+
+## Core concepts
+
+### Telemetry client
+
+The `TelemetryClient` is the main interface for sending telemetry data to RobotForge. Each client instance manages its own configuration, batching, and connection pooling.
+
+<ParamField body="api_key" type="string" required>
+Your RobotForge API key for authentication.
+</ParamField>
+
+<ParamField body="user_id" type="string" required>
+Unique identifier for the user or service making requests.
+</ParamField>
+
+<ParamField body="application_id" type="string" default="default">
+Identifier for your application to group related telemetry.
+</ParamField>
+
+<ParamField body="tenant_id" type="string" default="default">
+Multi-tenancy identifier for isolating data across organizations.
+</ParamField>
+
+<ParamField body="session_id" type="string | null" default="null">
+Session identifier for grouping related operations. Auto-generated if not provided.
+</ParamField>
+
+<ParamField body="batch_size" type="integer" default="10">
+Number of events to batch before sending to the server.
+</ParamField>
+
+<ParamField body="flush_interval" type="float" default="5.0">
+Time in seconds between automatic batch flushes.
+</ParamField>
+
+<ParamField body="max_retries" type="integer" default="3">
+Maximum number of retry attempts for failed requests.
+</ParamField>
+
+<ParamField body="debug" type="boolean" default="false">
+Enable debug logging for troubleshooting.
+</ParamField>
+
+### Spans and traces
+
+A **span** represents a single unit of work in your AI application, such as a model call or tool execution. Multiple related spans form a **trace**, which represents the complete execution path of a request.
+
+```python
+# Parent span (trace root)
+async with client.trace_model_call(provider="openai", model="gpt-4") as parent_span:
+    parent_span.set_input("Analyze sentiment")
+    
+    # Child span (part of same trace)
+    async with client.trace_tool_execution(tool_name="sentiment_analyzer") as child_span:
+        child_span.set_input({"text": "This is great!"})
+        result = await analyze_sentiment("This is great!")
+        child_span.set_output(result)
+    
+    parent_span.set_output("Positive sentiment detected")
+```
+
+### Event types
+
+The SDK supports three primary event types:
+
+<CardGroup cols={3}>
+<Card title="Model calls" icon="brain">
+Track LLM completions, embeddings, and other model interactions.
 </Card>
 
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
-  </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
-  </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
-  </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
-  </Card>
-</Columns>
-
-## Create beautiful pages
-
-Everything you need to create world-class documentation.
-
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
-
-## Need inspiration?
-
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
+<Card title="Tool executions" icon="wrench">
+Monitor API calls, database queries, and custom tool usage.
 </Card>
+
+<Card title="Agent actions" icon="robot">
+Observe agent reasoning, planning, and decision-making steps.
+</Card>
+</CardGroup>
+
+## Integration patterns
+
+### Context managers
+
+Context managers provide automatic span lifecycle management with proper timing and error handling.
+
+#### Async context managers
+
+<CodeGroup>
+```python Model calls
+async def chat_with_model(prompt: str):
+    async with client.trace_model_call(
+        provider="anthropic",
+        model="claude-3-opus"
+    ) as span:
+        span.set_input(prompt)
+        
+        response = await anthropic_client.messages.create(
+            model="claude-3-opus-20240229",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        span.set_output(response.content[0].text)
+        span.set_usage_details({
+            'prompt_tokens': response.usage.input_tokens,
+            'completion_tokens': response.usage.output_tokens,
+            'total_tokens': response.usage.input_tokens + response.usage.output_tokens
+        })
+        
+        return response.content[0].text
+```
+
+```python Tool execution
+async def search_web(query: str):
+    async with client.trace_tool_execution(
+        tool_name="web_search"
+    ) as span:
+        span.set_input({"query": query})
+        
+        results = await search_api.query(query)
+        
+        span.set_output(results)
+        span.set_metadata({
+            "result_count": len(results),
+            "api_endpoint": "https://api.search.com/v1/search"
+        })
+        
+        return results
+```
+
+```python Agent action
+async def plan_next_step(context: dict):
+    async with client.trace_agent_action(
+        action_type="planning"
+    ) as span:
+        span.set_input(context)
+        
+        plan = await agent.generate_plan(context)
+        
+        span.set_output(plan)
+        span.update(
+            thought_process=plan.reasoning,
+            selected_tool=plan.next_tool
+        )
+        
+        return plan
+```
+</CodeGroup>
+
+#### Sync context managers
+
+<CodeGroup>
+```python Model calls
+def generate_text(prompt: str):
+    with client.trace_model_call_sync(
+        provider="openai",
+        model="gpt-3.5-turbo"
+    ) as span:
+        span.set_input(prompt)
+        
+        response = openai_client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        span.set_output(response.choices[0].message.content)
+        return response.choices[0].message.content
+```
+
+```python Tool execution
+def query_database(sql: str):
+    with client.trace_tool_execution_sync(
+        tool_name="database_query"
+    ) as span:
+        span.set_input({"sql": sql})
+        
+        results = db.execute(sql)
+        
+        span.set_output(results)
+        return results
+```
+</CodeGroup>
+
+### Decorators
+
+Decorators provide zero-boilerplate instrumentation for functions that should always be traced.
+
+#### Model call decorators
+
+<CodeGroup>
+```python Async decorator
+@client.trace_model_call_decorator(
+    provider="openai",
+    model="gpt-4",
+    capture_input=True,
+    capture_output=True
+)
+async def summarize_document(document: str) -> str:
+    response = await openai_client.chat.completions.create(
+        model="gpt-4",
+        messages=[{
+            "role": "user",
+            "content": f"Summarize this document:\n\n{document}"
+        }]
+    )
+    return response.choices[0].message.content
+
+# Function is automatically traced
+summary = await summarize_document(long_document)
+```
+
+```python Sync decorator
+@client.trace_model_call_decorator(
+    provider="openai",
+    model="gpt-3.5-turbo",
+    capture_input=True,
+    capture_output=True
+)
+def generate_title(content: str) -> str:
+    response = openai_client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{
+            "role": "user",
+            "content": f"Generate a title for:\n\n{content}"
+        }]
+    )
+    return response.choices[0].message.content
+
+# Function is automatically traced
+title = generate_title(article_content)
+```
+</CodeGroup>
+
+<ParamField path="capture_input" type="boolean" default="true">
+Automatically capture function arguments as span input.
+</ParamField>
+
+<ParamField path="capture_output" type="boolean" default="true">
+Automatically capture function return value as span output.
+</ParamField>
+
+#### Tool execution decorators
+
+<CodeGroup>
+```python Async tool decorator
+@client.trace_tool_execution_decorator(
+    tool_name="email_sender",
+    capture_input=True,
+    capture_output=True
+)
+async def send_email(to: str, subject: str, body: str) -> dict:
+    result = await email_service.send(
+        recipient=to,
+        subject=subject,
+        body=body
+    )
+    return {"message_id": result.id, "status": "sent"}
+
+# Automatically traced with input/output
+response = await send_email(
+    to="user@example.com",
+    subject="Welcome",
+    body="Thanks for signing up!"
+)
+```
+
+```python Sync tool decorator
+@client.trace_tool_execution_decorator(
+    tool_name="api_caller",
+    capture_input=True,
+    capture_output=True
+)
+def call_external_api(endpoint: str, params: dict) -> dict:
+    response = requests.get(endpoint, params=params)
+    return response.json()
+
+# Automatically traced
+data = call_external_api(
+    endpoint="https://api.example.com/data",
+    params={"limit": 100}
+)
+```
+</CodeGroup>
+
+#### Agent action decorators
+
+```python
+@client.trace_agent_action_decorator(
+    action_type="decision_making",
+    capture_input=True,
+    capture_output=True
+)
+async def decide_next_action(state: dict) -> dict:
+    decision = await agent.analyze(state)
+    return {
+        "action": decision.action,
+        "confidence": decision.confidence,
+        "reasoning": decision.reasoning
+    }
+
+# Automatically traced with agent-specific metadata
+next_step = await decide_next_action(current_state)
+```
+
+## Span API reference
+
+All span types (`ModelCallSpan`, `ToolExecutionSpan`, `AgentActionSpan`) inherit from the base `ObservationSpan` class and support common operations.
+
+### Common span methods
+
+#### set_input
+
+Set the input data for the span.
+
+```python
+span.set_input("What is the capital of France?")
+
+# Or with structured data
+span.set_input({
+    "prompt": "Analyze this data",
+    "parameters": {"temperature": 0.7}
+})
+```
+
+<ParamField path="input" type="any">
+Input data for the operation. Can be a string, dictionary, list, or any JSON-serializable type.
+</ParamField>
+
+#### set_output
+
+Set the output data for the span.
+
+```python
+span.set_output("The capital of France is Paris.")
+
+# Or with structured data
+span.set_output({
+    "result": "Analysis complete",
+    "findings": ["finding1", "finding2"]
+})
+```
+
+<ParamField path="output" type="any">
+Output data from the operation. Can be a string, dictionary, list, or any JSON-serializable type.
+</ParamField>
+
+#### set_metadata
+
+Add custom metadata to the span.
+
+```python
+span.set_metadata("user_tier", "premium")
+
+# Or set multiple metadata fields
+span.update(metadata={
+    "user_tier": "premium",
+    "region": "us-east-1",
+    "experiment_id": "exp_123"
+})
+```
+
+<ParamField path="key" type="string">
+Metadata key name.
+</ParamField>
+
+<ParamField path="value" type="any">
+Metadata value. Must be JSON-serializable.
+</ParamField>
+
+#### set_status
+
+Set the execution status of the span.
+
+```python
+from telemetry_sdk.client import EventStatus
+
+span.set_status(EventStatus.SUCCESS)
+span.set_status(EventStatus.ERROR)
+span.set_status(EventStatus.PENDING)
+```
+
+<ParamField path="status" type="EventStatus">
+Status enum value: `SUCCESS`, `ERROR`, or `PENDING`.
+</ParamField>
+
+#### set_error
+
+Mark the span as failed and capture exception details.
+
+```python
+try:
+    result = await risky_operation()
+except Exception as e:
+    span.set_error(e)
+    raise
+```
+
+<ParamField path="error" type="Exception">
+Python exception object to capture.
+</ParamField>
+
+<Note>
+When using context managers, exceptions are automatically captured. You only need to call `set_error` explicitly when manually managing span lifecycle.
+</Note>
+
+### Model call span methods
+
+#### set_usage_details
+
+Record token usage information for the model call.
+
+```python
+span.set_usage_details({
+    'prompt_tokens': 150,
+    'completion_tokens': 75,
+    'total_tokens': 225
+})
+```
+
+<ResponseField name="prompt_tokens" type="integer">
+Number of tokens in the input prompt.
+</ResponseField>
+
+<ResponseField name="completion_tokens" type="integer">
+Number of tokens in the generated completion.
+</ResponseField>
+
+<ResponseField name="total_tokens" type="integer">
+Total tokens used (prompt + completion). Auto-calculated if not provided.
+</ResponseField>
+
+#### set_cost_details
+
+Record cost information for the model call.
+
+```python
+# Simple cost
+span.set_cost_details(0.0045)
+
+# Detailed cost breakdown
+span.set_cost_details({
+    'prompt_cost': 0.003,
+    'completion_cost': 0.0015,
+    'total_cost': 0.0045
+})
+```
+
+<ParamField path="cost" type="float | dict">
+Either a single float for total cost, or a dictionary with detailed cost breakdown.
+</ParamField>
+
+<Tip>
+The SDK includes built-in pricing information for popular models. When you specify `provider` and `model`, costs can be calculated automatically from usage details.
+</Tip>
+
+#### set_model_parameters
+
+Record model configuration parameters.
+
+```python
+span.set_model_parameters({
+    'temperature': 0.7,
+    'top_p': 0.9,
+    'max_tokens': 500,
+    'frequency_penalty': 0.0,
+    'presence_penalty': 0.0
+})
+```
+
+<ParamField path="params" type="dict">
+Dictionary of model parameters like temperature, top_p, max_tokens, etc.
+</ParamField>
+
+#### set_finish_reason
+
+Record why the model stopped generating.
+
+```python
+span.set_finish_reason("stop")  # Natural completion
+span.set_finish_reason("length")  # Hit max tokens
+span.set_finish_reason("content_filter")  # Content policy violation
+```
+
+<ParamField path="reason" type="string">
+Completion finish reason: `stop`, `length`, `content_filter`, or provider-specific values.
+</ParamField>
+
+#### update (ModelCallSpan)
+
+Update multiple model-specific fields at once.
+
+```python
+span.update(
+    input="What is machine learning?",
+    output="Machine learning is...",
+    model="gpt-4",
+    provider="openai",
+    model_parameters={'temperature': 0.7},
+    usage_details={
+        'prompt_tokens': 10,
+        'completion_tokens': 50,
+        'total_tokens': 60
+    },
+    cost_details=0.002
+)
+```
+
+### Tool execution span methods
+
+#### update (ToolExecutionSpan)
+
+Update multiple tool-specific fields at once.
+
+```python
+span.update(
+    input={"query": "search term"},
+    output={"results": [...]},
+    action="search",
+    endpoint="https://api.example.com/search",
+    http_method="POST",
+    http_status=200,
+    metadata={"api_version": "v2"}
+)
+```
+
+<ParamField path="action" type="string">
+The action or operation performed by the tool.
+</ParamField>
+
+<ParamField path="endpoint" type="string">
+API endpoint URL if the tool makes HTTP requests.
+</ParamField>
+
+<ParamField path="http_method" type="string">
+HTTP method used: GET, POST, PUT, DELETE, etc.
+</ParamField>
+
+<ParamField path="http_status" type="integer">
+HTTP status code returned from the API.
+</ParamField>
+
+### Agent action span methods
+
+#### update (AgentActionSpan)
+
+Update multiple agent-specific fields at once.
+
+```python
+span.update(
+    input={"task": "Plan research strategy"},
+    output={"plan": "Step 1...", "estimated_steps": 5},
+    agent_name="research_planner",
+    thought_process="First, I need to understand the scope...",
+    selected_tool="web_search",
+    metadata={"confidence": 0.85}
+)
+```
+
+<ParamField path="agent_name" type="string">
+Name or identifier of the agent performing the action.
+</ParamField>
+
+<ParamField path="thought_process" type="string">
+Agent's reasoning or internal monologue leading to the decision.
+</ParamField>
+
+<ParamField path="selected_tool" type="string">
+Name of the tool the agent chose to use next.
+</ParamField>
+
+## Advanced usage
+
+### Nested tracing
+
+Create hierarchical traces by nesting context managers to represent parent-child relationships.
+
+```python
+async def complex_workflow(user_query: str):
+    # Parent span - represents the entire workflow
+    async with client.trace_agent_action(
+        action_type="workflow_orchestration"
+    ) as workflow_span:
+        workflow_span.set_input({"query": user_query})
+        
+        # Child span 1 - Model call for query understanding
+        async with client.trace_model_call(
+            provider="openai",
+            model="gpt-4"
+        ) as understanding_span:
+            understanding_span.set_input(user_query)
+            intent = await analyze_intent(user_query)
+            understanding_span.set_output(intent)
+        
+        # Child span 2 - Tool execution based on intent
+        async with client.trace_tool_execution(
+            tool_name="data_retrieval"
+        ) as tool_span:
+            tool_span.set_input({"intent": intent})
+            data = await retrieve_data(intent)
+            tool_span.set_output(data)
+        
+        # Child span 3 - Model call for response generation
+        async with client.trace_model_call(
+            provider="openai",
+            model="gpt-4"
+        ) as generation_span:
+            generation_span.set_input({
+                "intent": intent,
+                "data": data
+            })
+            response = await generate_response(intent, data)
+            generation_span.set_output(response)
+        
+        workflow_span.set_output(response)
+        return response
+```
+
+<Check>
+The SDK automatically manages trace IDs and parent-child relationships when using nested context managers.
+</Check>
+
+### Parallel operations
+
+Track multiple concurrent operations within the same trace.
+
+```python
+async def process_multiple_prompts(prompts: list[str]):
+    async with client.trace_agent_action(
+        action_type="batch_processing"
+    ) as batch_span:
+        batch_span.set_input({"prompt_count": len(prompts)})
+        
+        # Process prompts in parallel, all linked to parent span
+        async def process_single(prompt: str, index: int):
+            async with client.trace_model_call(
+                provider="openai",
+                model="gpt-3.5-turbo"
+            ) as span:
+                span.set_input(prompt)
+                span.set_metadata("batch_index", index)
+                
+                result = await openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                
+                span.set_output(result.choices[0].message.content)
+                return result.choices[0].message.content
+        
+        # Execute all in parallel
+        results = await asyncio.gather(*[
+            process_single(prompt, i) 
+            for i, prompt in enumerate(prompts)
+        ])
+        
+        batch_span.set_output({
+            "processed": len(results),
+            "results": results
+        })
+        
+        return results
+
+# Process multiple prompts concurrently
+prompts = [
+    "Explain photosynthesis",
+    "What is quantum entanglement?",
+    "Describe the water cycle"
+]
+results = await process_multiple_prompts(prompts)
+await client.flush()
+```
+
+### Automatic provider integration
+
+The SDK includes built-in support for extracting metadata from popular LLM providers.
+
+```python
+# Automatic metadata extraction for Anthropic responses
+async with client.trace_model_call(
+    provider="anthropic",
+    model="claude-3-opus"
+) as span:
+    span.set_input("Explain AI safety")
+    
+    result = await anthropic_client.messages.create(
+        model="claude-3-opus-20240229",
+        messages=[{"role": "user", "content": "Explain AI safety"}]
+    )
+    
+    # SDK automatically extracts usage and cost
+    span.capture_anthropic_response(result)
+    span.set_output(result.content[0].text)
+```
+
+<AccordionGroup>
+<Accordion title="Supported providers">
+The SDK includes automatic response parsing for:
+
+- **OpenAI** - GPT models, embeddings, function calling
+- **Anthropic** - Claude models with message streaming
+- **Cohere** - Command models and embeddings
+- **Custom providers** - Generic interfaces for any provider
+</Accordion>
+
+<Accordion title="Custom provider integration">
+For unsupported providers, manually extract relevant fields:
+
+```python
+span.set_usage_details({
+    'prompt_tokens': custom_response.input_tokens,
+    'completion_tokens': custom_response.output_tokens,
+    'total_tokens': custom_response.total_tokens
+})
+
+if hasattr(custom_response, 'finish_reason'):
+    span.set_finish_reason(custom_response.finish_reason)
+```
+</Accordion>
+</AccordionGroup>
+
+### Error handling
+
+The SDK provides robust error handling with automatic retry logic and graceful degradation.
+
+```python
+async def resilient_model_call(prompt: str):
+    async with client.trace_model_call(
+        provider="openai",
+        model="gpt-4"
+    ) as span:
+        span.set_input(prompt)
+        
+        try:
+            response = await openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            span.set_output(response.choices[0].message.content)
+            return response.choices[0].message.content
+            
+        except openai.RateLimitError as e:
+            span.set_error(e)
+            span.set_metadata("error_type", "rate_limit")
+            span.set_status(EventStatus.ERROR)
+            raise
+            
+        except openai.APIError as e:
+            span.set_error(e)
+            span.set_metadata("error_type", "api_error")
+            span.set_status(EventStatus.ERROR)
+            raise
+            
+        except Exception as e:
+            span.set_error(e)
+            span.set_metadata("error_type", "unknown")
+            span.set_status(EventStatus.ERROR)
+            raise
+```
+
+<Warning>
+Always re-raise exceptions after capturing them in spans to maintain normal error propagation in your application.
+</Warning>
+
+### Batching and flushing
+
+The SDK automatically batches events for efficient transmission, but you can control this behavior.
+
+<Tabs>
+<Tab title="Async flushing">
+```python
+# Manual flush to ensure events are sent
+await client.flush()
+
+# Flush with timeout
+await client.flush(timeout=10.0)
+
+# Check if there are pending events
+if client.has_pending_events():
+    await client.flush()
+```
+</Tab>
+
+<Tab title="Sync flushing">
+```python
+# Manual flush in sync code
+client.flush_sync()
+
+# Flush with timeout
+client.flush_sync(timeout=10.0)
+
+# Check pending events
+if client.has_pending_events():
+    client.flush_sync()
+```
+</Tab>
+</Tabs>
+
+<Tip>
+Call `flush()` at the end of request handlers, batch jobs, or before application shutdown to ensure all events are sent.
+</Tip>
+
+### Configuration management
+
+Centralize configuration using the built-in config manager.
+
+```python
+from telemetry_sdk.utils import ConfigManager, load_config
+
+# Load from YAML file
+config = load_config("telemetry_config.yaml")
+
+client = TelemetryClient(config=config)
+```
+
+Example configuration file:
+
+```yaml telemetry_config.yaml
+api_key: ${ROBOTFORGE_API_KEY}
+user_id: production_service
+application_id: recommendation_engine
+tenant_id: acme_corp
+batch_size: 20
+flush_interval: 3.0
+max_retries: 5
+debug: false
+```
+
+## Best practices
+
+### Performance optimization
+
+<AccordionGroup>
+<Accordion title="Use appropriate batch sizes">
+Configure batch size based on your application's throughput:
+
+- **Low volume** (< 10 events/sec): `batch_size=5`, `flush_interval=10.0`
+- **Medium volume** (10-100 events/sec): `batch_size=10`, `flush_interval=5.0`
+- **High volume** (> 100 events/sec): `batch_size=50`, `flush_interval=2.0`
+
+```python
+client = TelemetryClient(
+    api_key=api_key,
+    user_id=user_id,
+    application_id=application_id,
+    batch_size=50,  # Higher for high-volume scenarios
+    flush_interval=2.0
+)
+```
+</Accordion>
+
+<Accordion title="Minimize span creation overhead">
+Create spans only for operations you need to monitor. Not every function needs instrumentation.
+
+```python
+# Good: Trace important operations
+async with client.trace_model_call(...) as span:
+    result = await expensive_llm_operation()
+
+# Avoid: Don't trace trivial operations
+# No need to trace simple string formatting
+formatted = f"Hello {name}"
+```
+</Accordion>
+
+<Accordion title="Reuse client instances">
+Create one client instance per application and reuse it across requests.
+
+```python
+# Good: Single client instance
+class Application:
+    def __init__(self):
+        self.telemetry = TelemetryClient(...)
+    
+    async def handle_request(self):
+        async with self.telemetry.trace_model_call(...) as span:
+            pass
+
+# Avoid: Creating clients repeatedly
+async def handle_request():
+    client = TelemetryClient(...)  # Creates new connection pool
+```
+</Accordion>
+</AccordionGroup>
+
+### Data privacy
+
+<AccordionGroup>
+<Accordion title="Sanitize sensitive data">
+Remove or mask sensitive information before sending it to RobotForge:
+
+```python
+def sanitize_prompt(prompt: str) -> str:
+    # Remove email addresses
+    prompt = re.sub(r'\S+@\S+', '[EMAIL]', prompt)
+    # Remove phone numbers
+    prompt = re.sub(r'\d{3}-\d{3}-\d{4}', '[PHONE]', prompt)
+    # Remove credit card numbers
+    prompt = re.sub(r'\d{4}[ -]?\d{4}[ -]?\d{4}[ -]?\d{4}', '[CC]', prompt)
+    return prompt
+
+async with client.trace_model_call(...) as span:
+    sanitized_input = sanitize_prompt(user_input)
+    span.set_input(sanitized_input)
+```
+</Accordion>
+
+<Accordion title="Exclude personal data from metadata">
+Avoid including PII in metadata fields:
+
+```python
+# Good: Use identifiers instead of personal data
+span.set_metadata("user_id", user.id)
+span.set_metadata("session_id", session.id)
+
+# Avoid: Don't include personal data
+# span.set_metadata("user_email", user.email)
+# span.set_metadata("user_name", user.full_name)
+```
+</Accordion>
+
+<Accordion title="Use environment-specific configurations">
+Configure different data retention policies per environment:
+
+```python
+config = {
+    'production': {
+        'capture_input': False,  # Don't capture user inputs in prod
+        'capture_output': False,  # Don't capture model outputs
+        'capture_metadata': True
+    },
+    'development': {
+        'capture_input': True,
+        'capture_output': True,
+        'capture_metadata': True
+    }
+}
+
+env_config = config[os.getenv('ENVIRONMENT', 'development')]
+```
+</Accordion>
+</AccordionGroup>
+
+### Production deployment
+
+<Steps>
+<Step title="Configure monitoring">
+Set up alerts for telemetry SDK errors and failed flushes.
+
+```python
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('robotforge.telemetry')
+
+# SDK errors are logged automatically
+```
+</Step>
+
+<Step title="Implement graceful shutdown">
+Ensure all events are flushed before application shutdown.
+
+```python
+import asyncio
+import signal
+
+async def shutdown(client: TelemetryClient):
+    logger.info("Shutting down - flushing telemetry")
+    await client.flush()
+    await client.close()
+
+async def main():
+    client = TelemetryClient(...)
+    
+    # Register shutdown handler
+    loop = asyncio.get_event_loop()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(
+            sig,
+            lambda: asyncio.create_task(shutdown(client))
+        )
+    
+    # Run application
+    await application.run()
+```
+</Step>
+
+<Step title="Configure retry behavior">
+Adjust retry settings based on your reliability requirements.
+
+```python
+client = TelemetryClient(
+    api_key=api_key,
+    user_id=user_id,
+    application_id=application_id,
+    max_retries=5,  # More retries for critical telemetry
+    retry_backoff=2.0  # Exponential backoff multiplier
+)
+```
+</Step>
+
+<Step title="Monitor SDK health">
+Track SDK metrics to ensure telemetry is working correctly.
+
+```python
+# Periodically check SDK health
+async def health_check():
+    stats = client.get_stats()
+    
+    metrics = {
+        'pending_events': stats['pending_events'],
+        'sent_events': stats['total_sent'],
+        'failed_events': stats['total_failed'],
+        'avg_batch_size': stats['avg_batch_size']
+    }
+    
+    # Send to your monitoring system
+    await monitoring.record(metrics)
+```
+
+<Check>
+Set up alerts when `failed_events` exceeds acceptable thresholds.
+</Check>
+</Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+<Accordion title="Events not appearing in dashboard">
+**Symptoms**: Telemetry events are created but don't show up in the RobotForge dashboard.
+
+**Solutions**:
+
+1. Ensure you call `flush()` to send batched events:
+```python
+await client.flush()
+# or for sync code:
+client.flush_sync()
+```
+
+2. Check for authentication errors in logs:
+```python
+client = TelemetryClient(
+    api_key=api_key,
+    user_id=user_id,
+    application_id=application_id,
+    debug=True  # Enable debug logging
+)
+```
+
+3. Verify your API key is valid and active in organization settings.
+
+4. Check network connectivity and firewall rules for outbound HTTPS.
+</Accordion>
+
+<Accordion title="High latency or performance impact">
+**Symptoms**: Application slows down significantly after adding telemetry.
+
+**Solutions**:
+
+1. Increase batch size to reduce HTTP request frequency:
+```python
+client = TelemetryClient(
+    batch_size=100,  # Larger batches
+    flush_interval=10.0  # Less frequent flushes
+)
+```
+
+2. Verify you're not creating spans for every trivial operation.
+
+3. Use decorators instead of manual context managers for better performance:
+```python
+# Faster: decorator with minimal overhead
+@client.trace_model_call_decorator(provider="openai", model="gpt-4")
+async def my_function():
+    pass
+```
+
+4. Consider using sampling for high-volume scenarios:
+```python
+import random
+
+if random.random() < 0.1:  # Sample 10% of requests
+    async with client.trace_model_call(...) as span:
+        pass
+```
+</Accordion>
+
+<Accordion title="Authentication errors">
+**Symptoms**: Getting 401 Unauthorized or 403 Forbidden errors.
+
+**Solutions**:
+
+1. Verify API key is correctly set:
+```python
+import os
+print(f"API Key loaded: {os.getenv('ROBOTFORGE_API_KEY')[:10]}...")
+```
+
+2. Check API key hasn't been revoked in organization settings.
+
+3. Ensure API key has proper permissions for your organization/project.
+
+4. Verify environment variables are loaded correctly:
+```python
+from dotenv import load_dotenv
+load_dotenv()  # Must be called before creating client
+```
+</Accordion>
+
+<Accordion title="Memory leaks with long-running applications">
+**Symptoms**: Memory usage continuously increases over time.
+
+**Solutions**:
+
+1. Ensure proper cleanup of client resources:
+```python
+async def main():
+    client = TelemetryClient(...)
+    try:
+        # Application logic
+        pass
+    finally:
+        await client.flush()
+        await client.close()  # Clean up connection pool
+```
+
+2. Configure maximum queue size to prevent unbounded growth:
+```python
+client = TelemetryClient(
+    max_queue_size=1000  # Drop events if queue exceeds this size
+)
+```
+
+3. Monitor pending event count:
+```python
+if client.has_pending_events():
+    count = client.get_pending_count()
+    if count > 1000:
+        logger.warning(f"Large pending event backlog: {count}")
+```
+</Accordion>
+
+<Accordion title="Type errors with MyPy or static analysis">
+**Symptoms**: Type checker reports errors when using SDK types.
+
+**Solutions**:
+
+1. Install type stubs if available:
+```bash
+pip install types-robotforge-python-sdk
+```
+
+2. Import proper types from SDK:
+```python
+from telemetry_sdk.client import TelemetryClient, EventStatus
+from typing import Optional, Dict, Any
+
+client: TelemetryClient = TelemetryClient(...)
+```
+
+3. Use type: ignore comments for known issues:
+```python
+result = await some_operation()  # type: ignore[misc]
+```
+</Accordion>
+</AccordionGroup>
+
+## Examples
+
+### Complete application example
+
+<CodeGroup>
+```python FastAPI application
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+import telemetry_sdk
+import openai
+import os
+
+app = FastAPI()
+
+# Initialize telemetry client
+telemetry_client = telemetry_sdk.quick_setup(
+    api_key=os.getenv("ROBOTFORGE_API_KEY"),
+    user_id="api_service",
+    application_id="chatbot_api",
+    set_as_default=True
+)
+
+# Initialize OpenAI client
+openai_client = openai.AsyncOpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
+
+class ChatRequest(BaseModel):
+    message: str
+    user_id: str
+
+class ChatResponse(BaseModel):
+    response: str
+    tokens_used: int
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat_endpoint(request: ChatRequest):
+    async with telemetry_client.trace_model_call(
+        provider="openai",
+        model="gpt-4"
+    ) as span:
+        # Set request metadata
+        span.set_input(request.message)
+        span.set_metadata("user_id", request.user_id)
+        span.set_metadata("endpoint", "/chat")
+        
+        try:
+            # Make OpenAI call
+            response = await openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": request.message}
+                ]
+            )
+            
+            # Capture telemetry
+            message_content = response.choices[0].message.content
+            span.set_output(message_content)
+            span.set_usage_details({
+                'prompt_tokens': response.usage.prompt_tokens,
+                'completion_tokens': response.usage.completion_tokens,
+                'total_tokens': response.usage.total_tokens
+            })
+            
+            return ChatResponse(
+                response=message_content,
+                tokens_used=response.usage.total_tokens
+            )
+            
+        except Exception as e:
+            span.set_error(e)
+            raise HTTPException(status_code=500, detail=str(e))
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    await telemetry_client.flush()
+    await telemetry_client.close()
+```
+
+```python Batch processing script
+import asyncio
+import os
+from pathlib import Path
+import telemetry_sdk
+import anthropic
+
+async def process_documents_batch(documents: list[str]):
+    # Initialize clients
+    telemetry_client = telemetry_sdk.quick_setup(
+        api_key=os.getenv("ROBOTFORGE_API_KEY"),
+        user_id="batch_processor",
+        application_id="document_analysis",
+        batch_size=50,  # Higher batch size for bulk processing
+        flush_interval=5.0
+    )
+    
+    anthropic_client = anthropic.AsyncAnthropic(
+        api_key=os.getenv("ANTHROPIC_API_KEY")
+    )
+    
+    async def analyze_document(doc_path: str, index: int):
+        async with telemetry_client.trace_model_call(
+            provider="anthropic",
+            model="claude-3-sonnet"
+        ) as span:
+            span.set_metadata("document_index", index)
+            span.set_metadata("document_path", doc_path)
+            
+            # Read document
+            with open(doc_path, 'r') as f:
+                content = f.read()
+            
+            span.set_input({"document": doc_path, "length": len(content)})
+            
+            # Analyze with Claude
+            response = await anthropic_client.messages.create(
+                model="claude-3-sonnet-20240229",
+                max_tokens=1000,
+                messages=[{
+                    "role": "user",
+                    "content": f"Analyze this document:\n\n{content}"
+                }]
+            )
+            
+            analysis = response.content[0].text
+            span.set_output({"analysis": analysis})
+            span.set_usage_details({
+                'prompt_tokens': response.usage.input_tokens,
+                'completion_tokens': response.usage.output_tokens,
+                'total_tokens': response.usage.input_tokens + response.usage.output_tokens
+            })
+            
+            return analysis
+    
+    # Process all documents in parallel
+    results = await asyncio.gather(*[
+        analyze_document(doc, i) 
+        for i, doc in enumerate(documents)
+    ])
+    
+    # Ensure all telemetry is sent
+    await telemetry_client.flush()
+    await telemetry_client.close()
+    
+    return results
+
+# Run batch processing
+documents = [str(p) for p in Path("./documents").glob("*.txt")]
+results = asyncio.run(process_documents_batch(documents))
+```
+
+```python Agent workflow
+import asyncio
+import telemetry_sdk
+import openai
+import os
+
+class ResearchAgent:
+    def __init__(self):
+        self.telemetry = telemetry_sdk.quick_setup(
+            api_key=os.getenv("ROBOTFORGE_API_KEY"),
+            user_id="research_agent",
+            application_id="autonomous_researcher"
+        )
+        self.openai_client = openai.AsyncOpenAI()
+    
+    async def research_topic(self, topic: str):
+        async with self.telemetry.trace_agent_action(
+            action_type="research_workflow"
+        ) as workflow_span:
+            workflow_span.set_input({"topic": topic})
+            
+            # Step 1: Generate research questions
+            questions = await self._generate_questions(topic)
+            
+            # Step 2: Answer each question
+            answers = []
+            for question in questions:
+                answer = await self._answer_question(question)
+                answers.append(answer)
+            
+            # Step 3: Synthesize findings
+            synthesis = await self._synthesize(topic, answers)
+            
+            workflow_span.set_output({
+                "topic": topic,
+                "questions_explored": len(questions),
+                "synthesis": synthesis
+            })
+            
+            return synthesis
+    
+    async def _generate_questions(self, topic: str):
+        async with self.telemetry.trace_model_call(
+            provider="openai",
+            model="gpt-4"
+        ) as span:
+            span.set_input(f"Generate research questions about: {topic}")
+            span.update(
+                agent_name="question_generator",
+                thought_process="Breaking down topic into research questions"
+            )
+            
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{
+                    "role": "user",
+                    "content": f"Generate 3 research questions about {topic}"
+                }]
+            )
+            
+            questions = response.choices[0].message.content.split('\n')
+            span.set_output(questions)
+            return questions
+    
+    async def _answer_question(self, question: str):
+        async with self.telemetry.trace_tool_execution(
+            tool_name="web_search"
+        ) as span:
+            span.set_input({"query": question})
+            
+            # Simulate web search
+            await asyncio.sleep(0.5)
+            answer = f"Research findings for: {question}"
+            
+            span.set_output(answer)
+            return answer
+    
+    async def _synthesize(self, topic: str, answers: list[str]):
+        async with self.telemetry.trace_model_call(
+            provider="openai",
+            model="gpt-4"
+        ) as span:
+            span.set_input({
+                "topic": topic,
+                "findings": answers
+            })
+            
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{
+                    "role": "user",
+                    "content": f"Synthesize these findings about {topic}:\n\n" + 
+                              "\n".join(answers)
+                }]
+            )
+            
+            synthesis = response.choices[0].message.content
+            span.set_output(synthesis)
+            return synthesis
+    
+    async def cleanup(self):
+        await self.telemetry.flush()
+        await self.telemetry.close()
+
+# Use the agent
+async def main():
+    agent = ResearchAgent()
+    result = await agent.research_topic("quantum computing applications")
+    print(result)
+    await agent.cleanup()
+
+asyncio.run(main())
+```
+</CodeGroup>
+
+## Migration guide
+
+### From manual logging
+
+If you're currently using print statements or logging for AI observability:
+
+<Tabs>
+<Tab title="Before">
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+
+async def generate_text(prompt: str):
+    logger.info(f"Calling OpenAI with prompt: {prompt}")
+    
+    start_time = time.time()
+    response = await openai_client.chat.completions.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    duration = time.time() - start_time
+    
+    logger.info(f"Response: {response.choices[0].message.content}")
+    logger.info(f"Duration: {duration}s")
+    logger.info(f"Tokens: {response.usage.total_tokens}")
+    
+    return response.choices[0].message.content
+```
+</Tab>
+
+<Tab title="After">
+```python
+import telemetry_sdk
+
+async def generate_text(prompt: str):
+    async with client.trace_model_call(
+        provider="openai",
+        model="gpt-4"
+    ) as span:
+        span.set_input(prompt)
+        
+        response = await openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        span.set_output(response.choices[0].message.content)
+        span.set_usage_details({
+            'total_tokens': response.usage.total_tokens,
+            'prompt_tokens': response.usage.prompt_tokens,
+            'completion_tokens': response.usage.completion_tokens
+        })
+        
+        return response.choices[0].message.content
+```
+</Tab>
+</Tabs>
+
+### From other observability tools
+
+<AccordionGroup>
+<Accordion title="From LangSmith">
+```python
+# LangSmith
+from langsmith import traceable
+
+@traceable
+def my_function(text: str):
+    return llm.invoke(text)
+
+# RobotForge equivalent
+@client.trace_model_call_decorator(
+    provider="openai",
+    model="gpt-4"
+)
+def my_function(text: str):
+    return llm.invoke(text)
+```
+</Accordion>
+
+<Accordion title="From Langfuse">
+```python
+# Langfuse
+from langfuse.decorators import observe
+
+@observe()
+def my_function(text: str):
+    return llm.complete(text)
+
+# RobotForge equivalent
+@client.trace_model_call_decorator(
+    provider="openai",
+    model="gpt-4",
+    capture_input=True,
+    capture_output=True
+)
+def my_function(text: str):
+    return llm.complete(text)
+```
+</Accordion>
+</AccordionGroup>
+
+## API reference summary
+
+### Client initialization
+
+<ResponseField name="TelemetryClient" type="class">
+Main client class for sending telemetry to RobotForge.
+
+**Constructor parameters:**
+- `api_key` (string, required): RobotForge API key
+- `user_id` (string, required): User identifier
+- `application_id` (string): Application identifier
+- `tenant_id` (string): Tenant identifier for multi-tenancy
+- `session_id` (string | null): Session identifier
+- `batch_size` (integer): Events per batch
+- `flush_interval` (float): Seconds between flushes
+- `max_retries` (integer): Maximum retry attempts
+- `debug` (boolean): Enable debug logging
+</ResponseField>
+
+### Tracing methods
+
+<ResponseField name="trace_model_call" type="async context manager">
+Async context manager for tracing model/LLM calls.
+
+**Returns:** `AsyncContextManager[ModelCallSpan]`
+</ResponseField>
+
+<ResponseField name="trace_model_call_sync" type="context manager">
+Sync context manager for tracing model/LLM calls.
+
+**Returns:** `ContextManager[ModelCallSpan]`
+</ResponseField>
+
+<ResponseField name="trace_tool_execution" type="async context manager">
+Async context manager for tracing tool executions.
+
+**Returns:** `AsyncContextManager[ToolExecutionSpan]`
+</ResponseField>
+
+<ResponseField name="trace_tool_execution_sync" type="context manager">
+Sync context manager for tracing tool executions.
+
+**Returns:** `ContextManager[ToolExecutionSpan]`
+</ResponseField>
+
+<ResponseField name="trace_agent_action" type="async context manager">
+Async context manager for tracing agent actions.
+
+**Returns:** `AsyncContextManager[AgentActionSpan]`
+</ResponseField>
+
+<ResponseField name="trace_agent_action_sync" type="context manager">
+Sync context manager for tracing agent actions.
+
+**Returns:** `ContextManager[AgentActionSpan]`
+</ResponseField>
+
+### Decorator methods
+
+<ResponseField name="trace_model_call_decorator" type="decorator">
+Decorator for automatic model call tracing.
+
+**Parameters:**
+- `provider` (string): LLM provider name
+- `model` (string): Model identifier
+- `capture_input` (boolean): Capture function arguments
+- `capture_output` (boolean): Capture return value
+</ResponseField>
+
+<ResponseField name="trace_tool_execution_decorator" type="decorator">
+Decorator for automatic tool execution tracing.
+
+**Parameters:**
+- `tool_name` (string, required): Tool identifier
+- `capture_input` (boolean): Capture function arguments
+- `capture_output` (boolean): Capture return value
+</ResponseField>
+
+<ResponseField name="trace_agent_action_decorator" type="decorator">
+Decorator for automatic agent action tracing.
+
+**Parameters:**
+- `action_type` (string, required): Action type identifier
+- `capture_input` (boolean): Capture function arguments
+- `capture_output` (boolean): Capture return value
+</ResponseField>
+
+### Utility methods
+
+<ResponseField name="flush" type="async method">
+Flush all pending events to RobotForge.
+
+**Parameters:**
+- `timeout` (float, optional): Maximum time to wait for flush
+
+**Returns:** `Awaitable[None]`
+</ResponseField>
+
+<ResponseField name="flush_sync" type="method">
+Synchronously flush all pending events.
+
+**Parameters:**
+- `timeout` (float, optional): Maximum time to wait for flush
+</ResponseField>
+
+<ResponseField name="close" type="async method">
+Close client and cleanup resources.
+
+**Returns:** `Awaitable[None]`
+</ResponseField>
+
+<ResponseField name="has_pending_events" type="method">
+Check if there are unsent events.
+
+**Returns:** `boolean`
+</ResponseField>
+
+## Support and resources
+
+<CardGroup cols={2}>
+<Card title="Documentation" icon="book" href="https://docs.robotforge.com.ng">
+Complete guides, tutorials, and API reference
+</Card>
+
+<Card title="GitHub Repository" icon="github" href="https://github.com/robotforge/python-sdk">
+Source code, examples, and issue tracking
+</Card>
+
+<Card title="Community Discord" icon="discord" href="https://discord.gg/robotforge">
+Get help from the community and team
+</Card>
+
+<Card title="Support Portal" icon="life-ring" href="https://support.robotforge.com.ng">
+Submit tickets and track issues
+</Card>
+</CardGroup>
+
+### Getting help
+
+<AccordionGroup>
+<Accordion title="Common questions">
+Check our FAQ and common issues documentation before reaching out for support.
+</Accordion>
+
+<Accordion title="Bug reports">
+Report bugs on GitHub Issues with:
+- SDK version
+- Python version
+- Minimal reproduction code
+- Expected vs actual behavior
+</Accordion>
+
+<Accordion title="Feature requests">
+Submit feature requests on GitHub Discussions with clear use cases and expected benefits.
+</Accordion>
+</AccordionGroup>
+
+---
+
+<Note>
+This documentation covers RobotForge Python SDK version 0.2.4. For older versions, check the [changelog](https://github.com/robotforge/python-sdk/blob/main/CHANGELOG.md).
+</Note>
